@@ -15,6 +15,10 @@ export default function LoginModal() {
       // Enviamos el correo
       const res = await api.post('/login', { correo, password });
       setUser(res.data);
+      // Redirección centralizada por rol.
+      if (res.data.role === 'ADMIN') {
+        navigate('/admin');
+      }
     } catch (error: any) {
       console.error(error);
       const msg = error.response?.data?.detail || "Error al iniciar sesión";
