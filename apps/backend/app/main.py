@@ -25,6 +25,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.error("No se pudo inicializar la base de datos: %s", exc)
 
+    # Garantiza que exista el usuario ADMIN que usa el panel de administración.
+    # Sin él, /api/admin/panel responde 404 "Usuario no encontrado".
+    try:
+        from seed import seed_db
+
+        seed_db()
+    except Exception as exc:
+        logger.warning("No se pudo verificar el usuario admin inicial: %s", exc)
+
     estado = llm.health()
     if estado.get("ok") and estado.get("model_available"):
         logger.info("Ollama disponible con el modelo %s", settings.OLLAMA_MODEL)

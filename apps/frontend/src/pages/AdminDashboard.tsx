@@ -96,11 +96,20 @@ export default function AdminDashboard() {
       } catch (e: any) {
         if (activo) {
           const detalle = e.response?.data?.detail;
-          setError(
-            typeof detalle === 'string'
-              ? detalle
-              : 'No se pudo cargar el panel de administración.'
-          );
+          const estado = e.response?.status;
+          if (estado === 404 || estado === 403) {
+            setError(
+              typeof detalle === 'string'
+                ? `${detalle}. Tu sesión no corresponde a un administrador válido: cierra sesión y vuelve a ingresar con la cuenta ADMIN.`
+                : 'Tu sesión no corresponde a un administrador válido: cierra sesión y vuelve a ingresar con la cuenta ADMIN.'
+            );
+          } else {
+            setError(
+              typeof detalle === 'string'
+                ? detalle
+                : 'No se pudo cargar el panel de administración.'
+            );
+          }
         }
       } finally {
         if (activo) setCargando(false);

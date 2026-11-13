@@ -1,0 +1,96 @@
+================================================================================
+ANÁLISIS BREVE DEL AGENTE "LÍA" - AGENTE DE IA PARA HOMOLOGACIONES
+Proyecto: agente-lia-uniespinal (FastAPI + React)
+Fecha de análisis: 2026-11-13
+================================================================================
+
+1. DESCRIPCIÓN GENERAL
+--------------------------------------------------------------------------------
+Lía es un agente conversacional de IA que guía a los estudiantes de UniEspinal
+en el proceso de solicitud de homologaciones de materias. Funciona como un chat
+por pasos (flujo guiado) que valida datos académicos contra un catálogo de
+reglas normativas y registra la solicitud directamente en la base de datos.
+
+Arquitectura monorepo (pnpm workspace):
+  - apps/backend  : API FastAPI (Python 3.14) + MySQL + Ollama (LLM local).
+  - apps/frontend : SPA React 18 + TypeScript + Vite + Tailwind + Zustand.
+
+Estructura del backend:
+  - app/api/routes.py        : login, registro, conversaciones, chat, documentos.
+  - app/api/admin_routes.py  : panel de administración (solo rol ADMIN).
+  - app/services/agent.py    : NÚCLEO del agente (no modificar).
+  - app/services/llm.py      : integración con Ollama (llama3.2:3b).
+  - app/services/conversation.py : memoria y resumen de conversaciones.
+  - app/services/normativa.py    : lectura de reglas (conocimiento_normativo).
+  - app/services/documentos.py   : validación de PDFs (pypdf, identidad).
+  - app/services/solicitudes.py  : persistencia de solicitudes y documentos.
+  - app/db/models.py         : modelos SQLAlchemy (usuarios, solicitudes, etc.).
+  - seed.py                  : crea el usuario administrador inicial.
+
+2. FLUJO DEL AGENTE (ESTADOS)
+--------------------------------------------------------------------------------
+IDLE → ASK_MATERIA → ASK_TIPO → (ASK_NOTA / ASK_SEMESTRE según tipo) →
+ASK_CREDITOS → ASK_DOCS → REVIEW_SUMMARY → ASK_UPDATES → SUBMITTED.
+
+Tipos de homologación:
+  - INTERNA: nota mínima 3.5, mínimo 1 semestre cursado, materia aprobada.
+  - EXTERNA: nota mínima 3.8 + 4 documentos (certificado de calificaciones,
+    contenidos programáticos, constancia de no sanción, comprobante de pago).
+
+Estados de la solicitud: 0=Borrador, 1=Pendiente de revisión, 2=Aprobada,
+3=Rechazada (solo el ADMIN cambia a 2 o 3).
+
+3. REQUERIMIENTOS
+--------------------------------------------------------------------------------
+  - Python 3.14 con entorno virtual en apps/backend/venv (requirements.txt).
+  - MySQL corriendo en localhost:3306, base de datos "homologacion_db"
+    (configurable por variables DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_NAME).
+  - Ollama corriendo en localhost:11434 con el modelo llama3.2:3b
+    (si no está disponible, el agente responde con modo determinista de
+    respaldo: sin reglas inventadas, el chat no se rompe).
+  - Node.js + pnpm (workspace) para el frontend.
+  - Correr `pnpm seed` (o python seed.py) para crear el admin:
+    admin@uniespinal.edu.co / admin123 (rol ADMIN).
+  - Levantar todo con `pnpm dev` (backend :8000, frontend :5173).
+
+4. RESTRICCIONES
+--------------------------------------------------------------------------------
+  - La estructura del agente (app/services/*, especialmente agent.py y sus
+    archivos) NO debe modificarse: es la lógica de negocio ya validada con
+    44 pruebas automatizadas (apps/backend/tests/test_agent.py).
+  - Solo se permiten PDFs, tamaño máximo 5 MB por documento.
+  - Cada documento se verifica contra la identidad del estudiante (nombre o
+    documento); los escaneos sin texto pasan a validación manual (verificado=0).
+  - Un chat asociado a una solicitud radicada (proceso_completado) queda
+    bloqueado: no se puede eliminar.
+  - La memoria del agente vive en la base de datos (conversaciones/mensajes),
+    no en RAM: el contexto sobrevive al recargar la página.
+  - Resumen incremental cuando la conversación supera el límite configurado
+    (SUMMARY_TRIGGER_MESSAGES), conservando los mensajes antiguos para auditoría.
+  - Las rutas /api/admin/* solo aceptan parámetro admin_id de un usuario con
+    rol ADMIN; cualquier otra sesión recibe 403 o 404.
+
+5. CONDICIONES DE NEGOCIO (REGLAS NORMATIVAS)
+--------------------------------------------------------------------------------
+  - Las reglas se leen de la tabla conocimiento_normativo (códigos HOM-001 a
+    HOM-013): notas mínimas, documentación, plazos (8 días hábiles de
+    anticipación) y límite de créditos homologables (máximo 50% del plan).
+  - La materia debe existir en el catálogo y estar marcada como homologable
+    (es_homologable=1); la búsqueda tolera errores de tipeo, números y
+    abreviaturas ("electiva 6" → "Electiva VI").
+  - Si la nota o el semestre no cumplen, el flujo termina en
+    ELIGIBILITY_FAILED y se ofrece corregir el dato o el tipo.
+  - Los errores del estudiante en medio del flujo se corrigen sin reiniciar
+    el trámite (cambiar tipo descarta los documentos de la modalidad anterior).
+  - Al confirmar el resumen, la solicitud se registra con estado 1
+    (Pendiente de revisión) y queda a espera de decisión del administrador
+    desde el dashboard (/admin).
+
+6. NOTAS DE LA ÚLTIMA CORRECCIÓN (DASHBOARD ADMIN)
+--------------------------------------------------------------------------------
+  - El "Not Found" del panel se debía a que no existía usuario ADMIN en la BD;
+    se corrigió creándolo con seed.py y garantizándolo en el arranque
+    (app/main.py llama a seed_db() en el lifespan).
+  - El mensaje de error del AdminDashboard ahora explica cuando la sesión no
+    corresponde a un administrador válido (403/404).
+================================================================================
